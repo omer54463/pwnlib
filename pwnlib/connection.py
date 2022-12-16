@@ -1,10 +1,12 @@
 from __future__ import annotations
-from select import select
 from socket import socket
 from sys import stdout
 from types import TracebackType
-from typing import Literal, Optional, Type
-from loguru import Logger
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional, Type
+from loguru import logger
+
+if TYPE_CHECKING:
+    from loguru import Logger
 
 
 class Connection:
@@ -12,7 +14,6 @@ class Connection:
     port: int
     socket: socket
     data: bytes
-    verbose: bool
     logger: Logger
 
     TIMEOUT = 5.0
@@ -24,24 +25,69 @@ class Connection:
         self.port = port
         self.data = b""
 
-        self.logger = Logger()
-        self.logger.add(sink=stdout, format=self.LOGGER_FORMAT, level="TRACE")
+        self.logger = logger.bind(pwnlib=True)
+        self.logger.remove()
+        self.logger.add(
+            sink=stdout,
+            filter=lambda record: "pwnlib" in record["extra"],
+            format=self.LOGGER_FORMAT,
+            level="TRACE" if verbose else "INFO",
+        )
         self.logger.configure(
             levels=[
                 dict(name="TRACE", color="<white>"),
                 dict(name="INFO", color="<white><bold>"),
+                dict(name="DEBUG", color="<cyan><bold>"),
                 dict(name="ERROR", color="<red><bold>"),
                 dict(name="SUCCESS", color="<green><bold>"),
             ]
         )
 
         self.socket = socket()
-        self.socket.setblocking(False)
+        self.socket.settimeout(self.TIMEOUT)
         self.socket.connect((self.host, self.port))
 
-        self.verbose = verbose
-        if self.verbose:
-            self.logger.info(f"Connected to {(self.host, self.port)}")
+        self.info(f"Connected to {(self.host, self.port)}")
+
+    def trace(
+        self,
+        message: str,
+        *args: Iterable[Any],
+        **kwargs: dict[Any, Any],
+    ) -> None:
+        return self.logger.trace(message, *args, **kwargs)
+
+    def info(
+        self,
+        message: str,
+        *args: Iterable[Any],
+        **kwargs: dict[Any, Any],
+    ) -> None:
+        return self.logger.info(message, *args, **kwargs)
+
+    def debug(
+        self,
+        message: str,
+        *args: Iterable[Any],
+        **kwargs: dict[Any, Any],
+    ) -> None:
+        return self.logger.debug(message, *args, **kwargs)
+
+    def error(
+        self,
+        message: str,
+        *args: Iterable[Any],
+        **kwargs: dict[Any, Any],
+    ) -> None:
+        return self.logger.error(message, *args, **kwargs)
+
+    def success(
+        self,
+        message: str,
+        *args: Iterable[Any],
+        **kwargs: dict[Any, Any],
+    ) -> None:
+        return self.logger.success(message, *args, **kwargs)
 
     def __enter__(self) -> Connection:
         return self
@@ -55,24 +101,16 @@ class Connection:
         self.close()
         return False
 
-    def recv(self, byte_count: int, timeout: float = TIMEOUT) -> bytes:
-        read_ready, _, _ = select([self.socket], [], [], timeout)
-        if len(read_ready) == 1:
-            return self.socket.recv(byte_count)
-
-        raise TimeoutError("Socket recv timed out")
-
     def close(self) -> None:
         self.socket.close()
-        self.logger.info(f"Disconnected from {(self.host, self.port)}")
+        self.info(f"Disconnected from {(self.host, self.port)}")
 
     def read_raw(self, byte_count: int) -> bytes:
         while len(self.data) < byte_count:
-            self.data += self.recv(byte_count - len(self.data))
+            self.data += self.socket.recv(byte_count - len(self.data))
 
         result, self.data = self.data[:byte_count], self.data[byte_count:]
-        if self.verbose:
-            self.logger.info("->", result)
+        self.trace("->", result)
         return result
 
     def read_until(self, value: bytes, include: bool = True) -> bytes:
@@ -82,11 +120,10 @@ class Connection:
                     index += len(value)
 
                 result, self.data = self.data[:index], self.data[index:]
-                if self.verbose:
-                    self.logger.info("->", result)
+                self.trace("->", result)
                 return result
 
-            self.data += self.recv(Connection.MAX_RECEIVE_SIZE)
+            self.data += self.socket.recv(Connection.MAX_RECEIVE_SIZE)
 
     def read_line(self) -> bytes:
         return self.read_until(b"\n")
@@ -94,17 +131,9 @@ class Connection:
     def read_lines(self, count: int) -> list[bytes]:
         return [self.read_line() for _ in range(count)]
 
-    def send(self, value: bytes, timeout: float = TIMEOUT) -> None:
-        _, write_ready, _ = select([], [self.socket], [], timeout)
-        if len(write_ready) == 1:
-            self.socket.send(value)
-
-        raise TimeoutError("Socket send timed out")
-
     def write(self, value: bytes) -> None:
-        self.send(value)
-        if self.verbose:
-            self.logger.info("<-", value)
+        self.socket.send(value)
+        self.trace("<-", value)
 
     def write_int(
         self,
@@ -114,6 +143,3 @@ class Connection:
         signed: bool = False,
     ) -> None:
         self.write(value.to_bytes(byte_count, byte_order, signed=signed))
-
-    def set_verbose(self, verbose: bool) -> None:
-        self.verbose = verbose
