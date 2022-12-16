@@ -1,0 +1,7 @@
+[project]
+name         = "pwnlib"
+version      = "0.1.0"
+description  = "Python package for solving CTF challenges."
+authors      = [{ name = "Omer Lubin", email = "omer@lubin.ws" }]
+readme       = "readme.md"
+dependencies = ["loguru"]
