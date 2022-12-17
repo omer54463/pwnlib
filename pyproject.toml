@@ -1,7 +1,14 @@
-[project]
-name         = "pwnlib"
-version      = "0.1.0"
-description  = "Python package for solving CTF challenges."
-authors      = [{ name = "Omer Lubin", email = "omer@lubin.ws" }]
-readme       = "readme.md"
-dependencies = ["loguru"]
+[tool.poetry]
+name        = "pwnlib"
+version     = "0.1.0"
+description = "Python package for solving CTF challenges."
+authors     = ["Omer Lubin <omer@lubin.ws>"]
+readme      = "readme.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+loguru = "^0.6.0"
+
+[build-system]
+requires      = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
