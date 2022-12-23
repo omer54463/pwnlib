@@ -35,23 +35,23 @@ class Connection:
 
         self.info(f"Connected to {(self.host, self.port)}")
 
-    def log(self, level: Level, message: str) -> None:
+    def log(self, level: Level, message: object) -> None:
         if self.log_callback is not None:
-            self.log_callback(level, message)
+            self.log_callback(level, str(message))
 
-    def trace(self, message: str) -> None:
+    def trace(self, message: object) -> None:
         return self.log(Level.TRACE, message)
 
-    def info(self, message: str) -> None:
+    def info(self, message: object) -> None:
         return self.log(Level.INFO, message)
 
-    def debug(self, message: str) -> None:
+    def debug(self, message: object) -> None:
         return self.log(Level.DEBUG, message)
 
-    def error(self, message: str) -> None:
+    def error(self, message: object) -> None:
         return self.log(Level.ERROR, message)
 
-    def success(self, message: str) -> None:
+    def success(self, message: object) -> None:
         return self.log(Level.SUCCESS, message)
 
     def __enter__(self: Self) -> Self:
@@ -64,6 +64,10 @@ class Connection:
         exception_backtrace: TracebackType | None,
     ) -> bool:
         self.close()
+
+        if exception_instance is None:
+            self.success("Done")
+            return True
 
         if isinstance(exception_instance, RuntimeError):
             self.error(str(exception_instance))
