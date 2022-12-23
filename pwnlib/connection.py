@@ -1,12 +1,11 @@
 from __future__ import annotations
 from socket import socket
-from sys import stdout
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional, Type
-from loguru import logger
+from typing import Literal, TypeVar
+from pwnlib.level import Level
+from pwnlib.logger_callback import LoggerCallback
 
-if TYPE_CHECKING:
-    from loguru import Logger
+Self = TypeVar("Self", bound="Connection")
 
 
 class Connection:
@@ -14,34 +13,21 @@ class Connection:
     port: int
     socket: socket
     data: bytes
-    logger: Logger
+    log_callback: LoggerCallback | None
 
     TIMEOUT = 5.0
     MAX_RECEIVE_SIZE = 0x200
-    LOGGER_FORMAT = "[ {time:YYYY-MM-DD HH:mm:ss.SSS} ] | <level>{message}</level>"
 
-    def __init__(self, host: str, port: int, verbose: bool = False) -> None:
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        log_callback: LoggerCallback | None = None,
+    ) -> None:
         self.host = host
         self.port = port
         self.data = b""
-
-        self.logger = logger.bind(pwnlib=True)
-        self.logger.remove()
-        self.logger.add(
-            sink=stdout,
-            filter=lambda record: "pwnlib" in record["extra"],
-            format=self.LOGGER_FORMAT,
-            level="TRACE" if verbose else "INFO",
-        )
-        self.logger.configure(
-            levels=[
-                dict(name="TRACE", color="<white>"),
-                dict(name="INFO", color="<white><bold>"),
-                dict(name="DEBUG", color="<cyan><bold>"),
-                dict(name="ERROR", color="<red><bold>"),
-                dict(name="SUCCESS", color="<green><bold>"),
-            ]
-        )
+        self.log_callback = log_callback
 
         self.socket = socket()
         self.socket.settimeout(self.TIMEOUT)
@@ -49,56 +35,40 @@ class Connection:
 
         self.info(f"Connected to {(self.host, self.port)}")
 
-    def trace(
-        self,
-        message: str,
-        *args: Iterable[Any],
-        **kwargs: dict[Any, Any],
-    ) -> None:
-        return self.logger.trace(message, *args, **kwargs)
+    def log(self, level: Level, message: str) -> None:
+        if self.log_callback is not None:
+            self.log_callback(level, message)
 
-    def info(
-        self,
-        message: str,
-        *args: Iterable[Any],
-        **kwargs: dict[Any, Any],
-    ) -> None:
-        return self.logger.info(message, *args, **kwargs)
+    def trace(self, message: str) -> None:
+        return self.log(Level.TRACE, message)
 
-    def debug(
-        self,
-        message: str,
-        *args: Iterable[Any],
-        **kwargs: dict[Any, Any],
-    ) -> None:
-        return self.logger.debug(message, *args, **kwargs)
+    def info(self, message: str) -> None:
+        return self.log(Level.INFO, message)
 
-    def error(
-        self,
-        message: str,
-        *args: Iterable[Any],
-        **kwargs: dict[Any, Any],
-    ) -> None:
-        return self.logger.error(message, *args, **kwargs)
+    def debug(self, message: str) -> None:
+        return self.log(Level.DEBUG, message)
 
-    def success(
-        self,
-        message: str,
-        *args: Iterable[Any],
-        **kwargs: dict[Any, Any],
-    ) -> None:
-        return self.logger.success(message, *args, **kwargs)
+    def error(self, message: str) -> None:
+        return self.log(Level.ERROR, message)
 
-    def __enter__(self) -> Connection:
+    def success(self, message: str) -> None:
+        return self.log(Level.SUCCESS, message)
+
+    def __enter__(self: Self) -> Self:
         return self
 
     def __exit__(
         self,
-        exception_type: Optional[Type[BaseException]],
-        exception_instance: Optional[BaseException],
-        exception_backtrace: Optional[TracebackType],
-    ) -> Literal[False]:
+        exception_type: type[BaseException] | None,
+        exception_instance: BaseException | None,
+        exception_backtrace: TracebackType | None,
+    ) -> bool:
         self.close()
+
+        if isinstance(exception_instance, RuntimeError):
+            self.error(str(exception_instance))
+            return True
+
         return False
 
     def close(self) -> None:
@@ -110,7 +80,7 @@ class Connection:
             self.data += self.socket.recv(byte_count - len(self.data))
 
         result, self.data = self.data[:byte_count], self.data[byte_count:]
-        self.trace("->", result)
+        self.trace(f"-> {result!r}")
         return result
 
     def read_until(self, value: bytes, include: bool = True) -> bytes:
@@ -120,7 +90,7 @@ class Connection:
                     index += len(value)
 
                 result, self.data = self.data[:index], self.data[index:]
-                self.trace("->", result)
+                self.trace(f"-> {result!r}")
                 return result
 
             self.data += self.socket.recv(Connection.MAX_RECEIVE_SIZE)
@@ -133,7 +103,7 @@ class Connection:
 
     def write(self, value: bytes) -> None:
         self.socket.send(value)
-        self.trace("<-", value)
+        self.trace(f"<- {value!r}")
 
     def write_int(
         self,
